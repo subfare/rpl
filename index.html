@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini r/place — GitHub Pages + Firebase (no backend)</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#0f1520; --panel-2:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#60a5fa; --good:#10b981; --warn:#f59e0b; --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b0f14,#0a111c 40%,#0b0f14);color:var(--text);font:16px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+    header{padding:16px 20px;border-bottom:1px solid #1f2937;background:rgba(17,24,39,.6);backdrop-filter:blur(6px);position:sticky;top:0;z-index:50}
+    header h1{margin:0;font-size:18px;display:flex;gap:10px;align-items:center;font-weight:700}
+    header small{color:var(--muted);font-weight:500}
+
+    .wrap{display:grid;grid-template-columns:320px 1fr;gap:16px;max-width:1200px;margin:18px auto;padding:0 16px}
+    @media (max-width: 900px){.wrap{grid-template-columns:1fr}}
+
+    .card{background:var(--panel);border:1px solid #1f2937;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .card h2{font-size:16px;margin:0 0 10px;color:#dbeafe}
+    .card .inner{padding:14px}
+    .controls{display:grid;gap:12px}
+
+    .palette{display:flex;flex-wrap:wrap;gap:6px}
+    .swatch{width:28px;height:28px;border-radius:7px;border:2px solid rgba(255,255,255,.15);cursor:pointer;box-shadow:inset 0 0 0 2px rgba(0,0,0,.25)}
+    .swatch[aria-selected="true"]{outline:2px solid var(--accent);outline-offset:2px}
+
+    .line{display:flex;align-items:center;gap:8px;color:var(--muted)}
+    .tag{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.06);color:#cbd5e1;border:1px solid rgba(255,255,255,.08)}
+
+    .btn{appearance:none;border:1px solid #1f2937;background:var(--panel-2);color:var(--text);padding:8px 12px;border-radius:12px;font-weight:600;cursor:pointer}
+    .btn:hover{filter:brightness(1.05)}
+
+    .canvas-wrap{position:relative;overflow:auto;border-radius:16px;border:1px solid #1f2937;background:#111827}
+    canvas{display:block;image-rendering:pixelated;}
+
+    .cooldown{position:absolute;inset:auto 12px 12px auto;background:rgba(0,0,0,.6);border:1px solid #1f2937;color:#d1d5db;padding:6px 10px;border-radius:10px;font-variant-numeric:tabular-nums;backdrop-filter:blur(4px)}
+
+    .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#0b1220;border:1px solid #1f2937;color:#cbd5e1;padding:10px 14px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .2s}
+    .toast.show{opacity:1}
+
+    .footer{padding:20px;color:#9ca3af;text-align:center}
+    code.inline{background:#0b1220;border:1px solid #1f2937;padding:.1em .35em;border-radius:.4em;color:#cbd5e1}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧩 Mini r/place <small>— Firebase + GitHub Pages</small></h1>
+  </header>
+
+  <div class="wrap">
+    <aside class="card">
+      <div class="inner controls">
+        <h2>🎨 Choose a color</h2>
+        <div id="palette" class="palette" role="listbox" aria-label="Palette"></div>
+        <div class="line">
+          <input type="color" id="customColor" class="btn" title="Custom color" />
+          <button id="zoomIn" class="btn" title="Zoom in">＋</button>
+          <button id="zoomOut" class="btn" title="Zoom out">－</button>
+        </div>
+        <div class="line">
+          <span class="tag" id="uidTag">User: …</span>
+          <span class="tag">Grid: <span id="gridSize"></span></span>
+        </div>
+        <div class="line" style="font-size:13px">Click a pixel to paint it. Cooldown: <b>15s</b> per user.</div>
+        <div class="line" style="font-size:12px">Tip: Drag to pan. Use Ctrl/Cmd + scroll to zoom.</div>
+      </div>
+    </aside>
+
+    <main class="card">
+      <div class="inner">
+        <h2>🧱 Canvas</h2>
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="board" width="1000" height="1000"></canvas>
+          <div class="cooldown" id="cooldown">Ready</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="footer">Built with <code class="inline">Firestore</code> realtime listeners and anonymous auth. Host this file on GitHub Pages.</div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    // --- 🔧 Configure your Firebase project here (copy from Firebase console) ---
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    // --- 📦 Firebase v10 ESM imports from CDN ---
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, writeBatch, serverTimestamp, query } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+    // --- 🚀 Init ---
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // --- 🎯 Grid settings ---
+    const W = 100; // width in pixels
+    const H = 100; // height in pixels
+    const PIXEL = 10; // canvas pixel size (logical)
+    const COOLDOWN_MS = 15000;
+
+    // --- 🎨 Palette (edit as you like) ---
+    const PALETTE = [
+      '#000000','#FFFFFF','#FF0000','#FFA800','#FFD300','#FFFF00','#A8FF00','#00E436','#29ADFF','#1D2B53','#7E2553','#FF77A8','#FFCCAA','#5F574F','#C2C3C7','#83769C',
+      '#00FFFF','#008751','#AB5236','#FF004D'
+    ];
+
+    // --- 🧰 DOM refs ---
+    const canvas = document.getElementById('board');
+    const wrap = document.getElementById('canvasWrap');
+    const ctx = canvas.getContext('2d', { willReadFrequently: false });
+    const pal = document.getElementById('palette');
+    const customColor = document.getElementById('customColor');
+    const cooldownEl = document.getElementById('cooldown');
+    const toast = document.getElementById('toast');
+    const uidTag = document.getElementById('uidTag');
+    document.getElementById('gridSize').textContent = `${W}×${H}`;
+
+    // --- 🔎 Zoom & pan helpers ---
+    let scale = 4; // CSS scale for zoom
+    let offsetX = 0, offsetY = 0; // panning
+    let isPanning = false; let startPan = {x:0,y:0}; let startOffset = {x:0,y:0};
+
+    function applyTransform(){
+      canvas.style.transformOrigin = '0 0';
+      canvas.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+    }
+    applyTransform();
+
+    wrap.addEventListener('wheel', (e)=>{
+      if(!(e.ctrlKey||e.metaKey)) return;
+      e.preventDefault();
+      const prev = scale;
+      scale = Math.min(20, Math.max(1, scale + (e.deltaY<0? 1 : -1)*0.5));
+      // Zoom towards cursor
+      const r = canvas.getBoundingClientRect();
+      const mx = e.clientX - r.left; const my = e.clientY - r.top;
+      offsetX = mx - (mx - offsetX) * (scale/prev);
+      offsetY = my - (my - offsetY) * (scale/prev);
+      applyTransform();
+    }, { passive:false });
+
+    wrap.addEventListener('mousedown', (e)=>{
+      if(e.button!==1 && !(e.shiftKey && e.button===0)) return; // middle mouse or shift+left
+      isPanning = true; startPan={x:e.clientX,y:e.clientY}; startOffset={x:offsetX,y:offsetY};
+    });
+    window.addEventListener('mousemove', (e)=>{
+      if(!isPanning) return; offsetX = startOffset.x + (e.clientX - startPan.x); offsetY = startOffset.y + (e.clientY - startPan.y); applyTransform();
+    });
+    window.addEventListener('mouseup', ()=> isPanning=false);
+
+    document.getElementById('zoomIn').onclick = ()=>{ scale=Math.min(20,scale+0.5); applyTransform(); };
+    document.getElementById('zoomOut').onclick = ()=>{ scale=Math.max(1,scale-0.5); applyTransform(); };
+
+    // --- 🖌️ Rendering ---
+    canvas.width = W*PIXEL; canvas.height = H*PIXEL;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // grid lines (subtle)
+    function drawGrid(){
+      const g = ctx; g.save(); g.globalAlpha = 0.15; g.strokeStyle='#000';
+      for(let x=0;x<=W;x++){g.beginPath(); g.moveTo(x*PIXEL,0); g.lineTo(x*PIXEL,H*PIXEL); g.stroke();}
+      for(let y=0;y<=H;y++){g.beginPath(); g.moveTo(0,y*PIXEL); g.lineTo(W*PIXEL,y*PIXEL); g.stroke();}
+      g.restore();
+    }
+    drawGrid();
+
+    function paint(x,y,color){
+      ctx.fillStyle = color; ctx.fillRect(x*PIXEL,y*PIXEL,PIXEL,PIXEL);
+    }
+
+    // --- 🎨 Palette UI ---
+    let currentColor = PALETTE[1];
+    function setCurrentColor(c){ currentColor = c; [...pal.children].forEach(b=>b.setAttribute('aria-selected', String(b.dataset.c===c))); customColor.value = c; }
+    PALETTE.forEach(c=>{
+      const b=document.createElement('button'); b.className='swatch'; b.style.background=c; b.dataset.c=c; b.setAttribute('role','option'); b.title=c;
+      b.onclick=()=>setCurrentColor(c); pal.appendChild(b);
+    });
+    setCurrentColor(currentColor);
+    customColor.addEventListener('input', ()=> setCurrentColor(customColor.value));
+
+    // --- ⏱️ Cooldown tracking ---
+    let lastPlacedAtServer = null; // Firestore Timestamp
+    function msRemaining(){
+      if(!lastPlacedAtServer) return 0; const lastMs = lastPlacedAtServer.toMillis(); const t = Date.now() - serverSkewMs; const diff = lastMs + COOLDOWN_MS - t; return Math.max(0,diff);
+    }
+    function formatMs(ms){ const s=Math.ceil(ms/1000); return s>0? `${s}s` : 'Ready'; }
+    function updateCooldownUI(){ const m=msRemaining(); cooldownEl.textContent = m? `Wait ${formatMs(m)}` : 'Ready'; cooldownEl.style.borderColor = m? '#374151' : '#1f6feb'; }
+
+    // Estimate server time skew on first user doc update
+    let serverSkewMs = 0; // clientMinusServer
+
+    // --- 🔐 Auth then realtime listeners ---
+    signInAnonymously(auth).catch(err=> showToast('Auth error: '+err.message));
+    onAuthStateChanged(auth, async (u)=>{
+      if(!u) return; uidTag.textContent = 'User: ' + u.uid.slice(0,8);
+
+      // Listen to user's cooldown doc
+      const userRef = doc(db,'users',u.uid);
+      onSnapshot(userRef, snap=>{
+        const srvNow = Date.now();
+        if(snap.exists()){
+          const t = snap.data().lastPlacedAt; if(t){
+            if(!lastPlacedAtServer) serverSkewMs = srvNow - t.toMillis();
+            lastPlacedAtServer = t; updateCooldownUI();
+          }
+        }
+      });
+
+      // Listen to all pixels
+      const q = query(collection(db,'pixels'));
+      onSnapshot(q, (snapshot)=>{
+        snapshot.docChanges().forEach(ch=>{
+          const d = ch.doc.data(); if(typeof d.x==='number' && typeof d.y==='number' && typeof d.color==='string'){
+            paint(d.x,d.y,d.color);
+          }
+        });
+        drawGrid();
+      });
+    });
+
+    // --- 🖱️ Click to place pixel ---
+    canvas.addEventListener('click', async (e)=>{
+      const rect = canvas.getBoundingClientRect();
+      const cx = (e.clientX - rect.left - offsetX) / scale;
+      const cy = (e.clientY - rect.top - offsetY) / scale;
+      const x = Math.floor(cx / PIXEL); const y = Math.floor(cy / PIXEL);
+      if(x<0||y<0||x>=W||y>=H) return;
+
+      if(msRemaining()>0){ showToast('Please wait for cooldown'); return; }
+
+      try{
+        const u = auth.currentUser; if(!u) throw new Error('Not signed in');
+        const batch = writeBatch(db);
+        const pRef = doc(db,'pixels',`${x}_${y}`);
+        batch.set(pRef,{ x, y, color: currentColor, updatedAt: serverTimestamp(), uid: u.uid }, { merge:true });
+        const userRef = doc(db,'users',u.uid);
+        batch.set(userRef,{ lastPlacedAt: serverTimestamp() }, { merge:true });
+        await batch.commit();
+        showToast(`Placed at (${x},${y})`);
+      }catch(err){
+        console.error(err); showToast('Write denied: '+(err.message||err));
+      }
+    });
+
+    // --- 🍞 tiny toast ---
+    let toastTimer=null;
+    function showToast(msg){ toast.textContent=msg; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('show'), 2200); }
+  </script>
+</body>
+</html>
