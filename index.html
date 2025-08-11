@@ -4,6 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mini r/place — GitHub Pages + Firebase (no backend)</title>
+  <!-- Open Graph / Discord / Twitter preview -->
+  <meta name="description" content="A tiny, multiplayer r/place-style canvas. Click to paint pixels in real time (15s cooldown). No backend—just Firebase + GitHub Pages." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Mini r/place" />
+  <meta property="og:title" content="Mini r/place — live pixel canvas" />
+  <meta property="og:description" content="Paint pixels together in real time. 15s cooldown per user. Works entirely in the browser." />
+  <meta property="og:url" content="https://subfare.lol/place" />
+  <meta property="og:image" content="https://subfare.lol/place/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Mini r/place — live pixel canvas" />
+  <meta name="twitter:description" content="A collaborative pixel board built with Firebase Firestore. Click to paint—see updates instantly." />
+  <meta name="twitter:image" content="https://subfare.lol/place/og-image.png" />
+  <meta name="theme-color" content="#60a5fa" />
+  <link rel="canonical" href="https://subfare.lol/place" />
   <style>
     :root{
       --bg:#0b0f14; --panel:#0f1520; --panel-2:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#60a5fa; --good:#10b981; --warn:#f59e0b; --bad:#ef4444;
@@ -42,12 +58,20 @@
 
     .footer{padding:20px;color:#9ca3af;text-align:center}
     code.inline{background:#0b1220;border:1px solid #1f2937;padding:.1em .35em;border-radius:.4em;color:#cbd5e1}
+  .beta-banner{margin:12px auto 0;max-width:1200px;padding:10px 14px;border-radius:12px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#fde68a;display:flex;gap:10px;align-items:center}
+    .beta-banner b{color:#fff}
+    .beta-close{margin-left:auto;background:transparent;border:0;color:#fde68a;font-size:18px;cursor:pointer}
   </style>
 </head>
 <body>
   <header>
-    <h1>🧩 Mini r/place <small>— Made by @subfare</small></h1>
+    <h1>🧩 Mini r/place <small>— Firebase + GitHub Pages</small></h1>
   </header>
+
+  <div class="beta-banner" id="betaBanner" role="status" aria-live="polite">
+    <span>🚧 <b>Early beta:</b> this site is in a very early beta and may break. Features can change, and some things might not work as expected. The canvas or data may be reset at any time.</span>
+    <button class="beta-close" id="betaClose" aria-label="Dismiss beta notice">×</button>
+  </div>
 
   <div class="wrap">
     <aside class="card">
@@ -85,12 +109,12 @@
   <script type="module">
     // --- 🔧 Configure your Firebase project here (copy from Firebase console) ---
     const firebaseConfig = {
-      apiKey: "AIzaSyAelsoyehsa6xNSNz-4JSDd2JSN4yIzo3Q",
-      authDomain: "rpla-9ef3e.firebaseapp.com",
-      projectId: "rpla-9ef3e",
-      storageBucket: "rpla-9ef3e.firebasestorage.app",
-      messagingSenderId: "54968159230",
-      appId: "1:54968159230:web:067c195659fb3c26e5ceaf"
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
     };
 
     // --- 📦 Firebase v10 ESM imports from CDN ---
@@ -257,6 +281,14 @@
     // --- 🍞 tiny toast ---
     let toastTimer=null;
     function showToast(msg){ toast.textContent=msg; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('show'), 2200); }
+      // --- 🚧 Beta banner (dismiss + remember) ---
+    (function(){
+      const banner = document.getElementById('betaBanner');
+      const btn = document.getElementById('betaClose');
+      if(!banner||!btn) return;
+      if(localStorage.getItem('hideBeta')==='1'){ banner.style.display='none'; }
+      btn.addEventListener('click', ()=>{ banner.style.display='none'; localStorage.setItem('hideBeta','1'); });
+    })();
   </script>
 </body>
 </html>
